@@ -1,0 +1,506 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>ActionMon</title>
+    <script src="https://act.diemoe.net/overlays/common/common.min.js"></script>
+    <script src="action_data.js"></script>
+    <link rel="stylesheet" href="ActionMon.css">
+</head>
+<body>
+
+    <div id="party-controls"></div>
+    <div id="party-container"></div>
+
+    <script>
+        // --- 配置区 ---
+        // 根据序号排除技能（使用 action ID）
+        const IGNORE_SKILL_IDS = new Set([
+            "4",    // 坐骑
+            "7",    // 攻击
+        ]);
+        
+        // 传送带速度 (像素/秒)
+        const SCROLL_SPEED = 75; 
+        
+        // 技能图标大小 (像素)
+        const CELL_SIZE = 50;
+        
+        // 留白
+        const PADDING_RIGHT = 10;
+        
+        // 从 CSS 变量中获取视口宽度
+        const viewportWidthStr = window.getComputedStyle(document.documentElement).getPropertyValue('--viewport-width').trim();
+        const VIEWPORT_WIDTH = parseInt(viewportWidthStr) || 500; // 默认值 500px
+        // 计算生成点
+        const SPAWN_X = VIEWPORT_WIDTH - CELL_SIZE - PADDING_RIGHT; 
+
+        // --- 多成员支持数据结构 ---
+        class PartyMember {
+            constructor(id, name, job = null) {
+                this.id = id;
+                this.name = name;
+                this.job = job;
+                this.ribbon = null;
+                this.activeSkills = [];
+                this.castingMap = new Map();
+                this.aoeDedupeMap = { currentActionId: null };
+                this.visible = false;
+                this.rowElement = null;
+                this.buttonElement = null;
+                
+                // 创建UI元素
+                this.createUI();
+            }
+            
+            createUI() {
+                const container = document.getElementById('party-container');
+                
+                // 创建行
+                const row = document.createElement('div');
+                row.className = 'party-member-row';
+                row.id = `row-${this.id}`;
+                row.style.display = 'none';
+                
+                // 创建名称标签
+                const nameLabel = document.createElement('div');
+                nameLabel.className = 'player-name-label';
+                nameLabel.textContent = this.name;
+                
+                // 创建视口
+                const viewport = document.createElement('div');
+                viewport.className = 'cast-viewport';
+                viewport.id = `viewport-${this.id}`;
+                
+                // 创建技能带
+                const ribbon = document.createElement('div');
+                ribbon.id = `ribbon-${this.id}`;
+                ribbon.style.position = 'absolute';
+                ribbon.style.top = '0';
+                ribbon.style.left = '0';
+                ribbon.style.width = '100%';
+                ribbon.style.height = '100%';
+                ribbon.style.pointerEvents = 'none';
+                
+                viewport.appendChild(ribbon);
+                row.appendChild(nameLabel);
+                row.appendChild(viewport);
+                container.appendChild(row);
+                
+                this.ribbon = ribbon;
+                this.rowElement = row;
+            }
+            
+            createControlButton() {
+                const button = document.createElement('button');
+                button.className = 'member-toggle';
+                button.id = `toggle-${this.id}`;
+                button.textContent = this.name;
+                
+                button.addEventListener('click', () => {
+                    this.toggleVisibility();
+                });
+                
+                this.buttonElement = button;
+                this.updateButtonStyle();
+                return button;
+            }
+            
+            toggleVisibility() {
+                this.visible = !this.visible;
+                if (this.rowElement) {
+                    this.rowElement.style.display = this.visible ? 'flex' : 'none';
+                }
+                this.updateButtonStyle();
+            }
+            
+            updateButtonStyle() {
+                if (!this.buttonElement) return;
+                
+                if (this.visible) {
+                    this.buttonElement.classList.add('active');
+                    this.buttonElement.classList.remove('inactive');
+                } else {
+                    this.buttonElement.classList.remove('active');
+                    this.buttonElement.classList.add('inactive');
+                }
+            }
+            
+            updateName(newName) {
+                this.name = newName;
+                if (this.buttonElement) {
+                    this.buttonElement.textContent = newName;
+                }
+                const nameLabel = document.querySelector(`#row-${this.id} .player-name-label`);
+                if (nameLabel) {
+                    nameLabel.textContent = newName;
+                }
+            }
+            
+            remove() {
+                if (this.rowElement && this.rowElement.parentNode) {
+                    this.rowElement.parentNode.removeChild(this.rowElement);
+                }
+                if (this.buttonElement && this.buttonElement.parentNode) {
+                    this.buttonElement.parentNode.removeChild(this.buttonElement);
+                }
+            }
+        }
+
+        class PartyManager {
+            constructor() {
+                this.members = new Map();
+                this.currentPlayerId = null;
+            }
+            
+            getMember(memberId) {
+                return this.members.get(memberId) || null;
+            }
+            
+            createMember(memberId, memberName, job = null) {
+                if (!this.members.has(memberId)) {
+                    const member = new PartyMember(memberId, memberName, job);
+                    this.members.set(memberId, member);
+                }
+                return this.members.get(memberId);
+            }
+            
+            removeMember(memberId) {
+                const member = this.members.get(memberId);
+                if (member) {
+                    member.remove();
+                    this.members.delete(memberId);
+                }
+            }
+            
+            updatePartyControls() {
+                const controlsContainer = document.getElementById('party-controls');
+                controlsContainer.innerHTML = '';
+                
+                // 按照加入顺序添加按钮
+                for (const member of this.members.values()) {
+                    const button = member.createControlButton();
+                    controlsContainer.appendChild(button);
+                }
+            }
+            
+            clearNonPartyMembers(partyIds) {
+                const partyIdSet = new Set(partyIds);
+                const membersToRemove = [];
+                
+                for (const memberId of this.members.keys()) {
+                    if (!partyIdSet.has(memberId)) {
+                        membersToRemove.push(memberId);
+                    }
+                }
+                
+                membersToRemove.forEach(memberId => this.removeMember(memberId));
+            }
+        }
+
+        const partyManager = new PartyManager();
+
+        // 更新咏唱条样式（问题3优化：统一咏唱条状态管理）
+        function updateCastBarState(skillObj, state) {
+            if (!skillObj || !skillObj.castBar) return;
+            
+            switch (state) {
+                case 'casting':
+                    // 正在咏唱
+                    skillObj.castBar.style.background = 'linear-gradient(90deg, rgba(100, 200, 255, 0.6), rgba(100, 150, 255, 0.0))';
+                    skillObj.castBar.style.borderColor = 'rgba(150, 220, 255, 0.7)';
+                    break;
+                case 'interrupted':
+                    // 咏唱中断
+                    skillObj.castBar.style.background = 'linear-gradient(90deg, rgba(255, 100, 100, 0.8), rgba(255, 50, 50, 0.3))';
+                    skillObj.castBar.style.borderColor = 'rgba(255, 100, 100, 1)';
+                    break;
+            }
+        }
+
+        class SkillEventHandler {
+            constructor() {
+                this.ignoreSkillIds = IGNORE_SKILL_IDS;
+            }
+            
+            handleLogLine(data) {
+                if (data.line[0] === '21') {
+                    partyManager.currentPlayerId = data.line[2]; // 获取当前玩家ID
+                }
+
+                const lineType = data.line[0];
+                const sourceId = data.line[2]; // 技能释放者ID
+                const hexId = data.line[4];
+                const actionId = parseInt(hexId, 16).toString();
+                
+                // 仅获取已存在的成员数据，不创建新卷轴
+                const member = partyManager.getMember(sourceId);
+                if (!member) return; // 如果成员不在小队中，忽略此事件
+                
+                // 如果actionId变化，清空去重对象并存储新的actionId
+                if (member.aoeDedupeMap.currentActionId !== actionId) {
+                    member.aoeDedupeMap = { currentActionId: actionId };
+                }
+                
+                if (typeof ACTION_DATA !== 'undefined' && (lineType === '20' || lineType === '21' || lineType === '22' || lineType === '23')) {
+                    const skill = ACTION_DATA[actionId];
+                    
+                    if (skill) {
+                        if (this.ignoreSkillIds.has(actionId)) return;
+                        
+                        switch (lineType) {
+                            case '20':
+                                this.handleCastStart(member, actionId, skill.n, skill.i, skill.c);
+                                break;
+                            case '21':
+                                this.handleCastFinish(member, actionId, skill.n, skill.i, skill.c);
+                                break;
+                            case '22':
+                                this.handleAoeCast(member, actionId, skill.n, skill.i, skill.c, data.line[44]);
+                                break;
+                            case '23':
+                                this.handleCastInterrupt(member, actionId);
+                                break;
+                        }
+                    }
+                }
+            }
+            
+            handleCastStart(member, actionId, name, iconId, skillType) {
+                const skillObj = createSkillItem(member, name, iconId, skillType, true);
+                
+                // 给图标添加透明度样式
+                skillObj.el.classList.add('casting');
+                
+                // 存入 Map 以便后续更新
+                member.castingMap.set(actionId, skillObj);
+            }
+            
+            handleCastFinish(member, actionId, name, iconId, skillType) {
+                if (member.castingMap.has(actionId)) {
+                    // 如果是，标记咏唱结束
+                    const skillObj = member.castingMap.get(actionId);
+                    skillObj.isCasting = false;
+                    
+                    // 移除透明度样式
+                    skillObj.el.classList.remove('casting');
+                    
+                    // 将图标图层置于咏唱条上方
+                    const iconEl = skillObj.el.querySelector('.skill-icon');
+                    if (iconEl) {
+                        iconEl.style.zIndex = '15';
+                    }
+                    
+                    // 从 Map 中移除，不再增长长度
+                    member.castingMap.delete(actionId);
+                } else {
+                    // 如果没在 Map 里，说明是瞬发技能或能力技 (OGCD)
+                    // 直接创建一个没有咏唱条的技能
+                    createSkillItem(member, name, iconId, skillType, false);
+                }
+            }
+            
+            handleAoeCast(member, actionId, name, iconId, skillType, effectId) {
+                if (!member.aoeDedupeMap[effectId]) {
+                    member.aoeDedupeMap[effectId] = true;
+                    this.handleCastFinish(member, actionId, name, iconId, skillType);
+                }
+            }
+            
+            handleCastInterrupt(member, actionId) {
+                if (member.castingMap.has(actionId)) {
+                    const skillObj = member.castingMap.get(actionId);
+                    // 停止咏唱条增长
+                    skillObj.isCasting = false;
+                    
+                    // 使用统一的咏唱条状态更新函数
+                    updateCastBarState(skillObj, 'interrupted');
+                    
+                    // 从 Map 中移除，不再更新此技能
+                    member.castingMap.delete(actionId);
+                }
+            }
+        }
+
+        const skillEventHandler = new SkillEventHandler();
+        
+        addOverlayListener('LogLine', (data) => {
+            skillEventHandler.handleLogLine(data);
+        });
+
+        addOverlayListener('PartyChanged', (e) => {
+            // e.party 是一个数组，包含当前所有小队成员
+            if (e.party && e.party.length > 0) {
+                const partyIds = [];
+                
+                e.party.forEach(member => {
+                    const name = member.name;
+                    const id = member.id;
+                    const job = member.job;
+                    
+                    partyIds.push(id);
+                    
+                    // 更新或创建成员数据
+                    const existingMember = partyManager.getMember(id);
+                    if (existingMember) {
+                        existingMember.updateName(name);
+                        existingMember.job = job;
+                    } else {
+                        partyManager.createMember(id, name, job);
+                    }
+                    console.log(`Party Member: ID=${id}, Name=${name}, Job=${job}`);
+                });
+                
+                // 清理不在小队中的成员
+                partyManager.clearNonPartyMembers(partyIds);
+                
+                // 更新控制栏
+                partyManager.updatePartyControls();
+            }
+        });
+
+
+
+        // 创建技能 DOM 并加入 activeSkills
+        function createSkillItem(member, name, iconId, skillType, hasCastBar) {
+            const item = document.createElement('div');
+            item.className = 'skill-item';
+            
+            // 初始位置
+            item.style.left = `${SPAWN_X}px`;
+
+            // 1. 创建图标
+            if (skillType === 4) item.classList.add('ogcd');
+
+            const iconEl = document.createElement('div');
+            iconEl.className = 'skill-icon';
+            if (iconId) {
+                const folder = (Math.floor(iconId / 1000) * 1000).toString().padStart(6, '0');
+                const iconStr = iconId.toString().padStart(6, '0');
+                iconEl.style.backgroundImage = `url('https://cafemaker.wakingsands.com/i/${folder}/${iconStr}.png')`;
+            }
+            item.appendChild(iconEl);
+
+            // 2. 创建名字
+            const nameLabel = document.createElement('div');
+            nameLabel.className = 'skill-name';
+            nameLabel.innerText = name;
+            adjustFontSize(nameLabel, name);
+            item.appendChild(nameLabel);
+
+            // 3. (可选) 创建咏唱条
+            let castBarEl = null;
+            if (hasCastBar) {
+                castBarEl = document.createElement('div');
+                castBarEl.className = 'cast-bar';
+                castBarEl.style.width = '0px'; // 初始宽度为0
+                item.appendChild(castBarEl);
+            }
+
+            member.ribbon.appendChild(item);
+
+            const skillObj = {
+                el: item,
+                castBar: castBarEl,
+                spawnTime: Date.now(),
+                isCasting: hasCastBar, // 标记是否需要更新宽度
+                name: name
+            };
+
+            member.activeSkills.push(skillObj);
+            return skillObj;
+        }
+
+        function adjustFontSize(nameEl, skillName) {
+            let fontSize = 10;
+            const nameLength = skillName.length;
+            if (nameLength > 10) fontSize = 6;
+            else if (nameLength > 8) fontSize = 7;
+            else if (nameLength > 6) fontSize = 8;
+            else if (nameLength > 4) fontSize = 9;
+            nameEl.style.fontSize = `${fontSize}px`;
+        }
+
+        function animationLoop() {
+            const now = Date.now();
+            
+            // 遍历所有小队成员
+            for (const member of partyManager.members.values()) {
+                // 如果成员不可见，跳过更新以节省性能
+                if (!member.visible) continue;
+                
+                const activeSkills = member.activeSkills;
+                
+                // 倒序遍历以便安全删除
+                for (let i = activeSkills.length - 1; i >= 0; i--) {
+                    const skill = activeSkills[i];
+                    const timeAlive = (now - skill.spawnTime) / 1000;
+                    
+                    // 1. 更新位置：所有物体向左移动
+                    // 图标当前位置
+                    const currentLeft = SPAWN_X - (timeAlive * SCROLL_SPEED);
+                    skill.el.style.left = `${currentLeft}px`;
+
+                    // 2. 更新咏唱条宽度（如果正在咏唱）
+                    // 逻辑：图标在左移，咏唱条从图标左侧开始，向右延伸到生成点(SPAWN_X)
+                    if (skill.isCasting && skill.castBar) {
+                        // 咏唱条宽度 = 生成点横坐标 - 图标当前左侧位置
+                        let barWidth = SPAWN_X - currentLeft;
+                        if (barWidth < 0) barWidth = 0; // 保护一下
+
+                        skill.castBar.style.width = `${barWidth}px`;
+                    }
+
+                    // 3. 清理屏幕外的元素
+                    // 检查：如果（位置 + 宽度(如果有) + 额外缓冲） < 0 则删除
+                    // 简单起见，当位置小于 -200 时删除
+                    if (currentLeft < -200) {
+                        if (skill.el.parentNode) {
+                            skill.el.parentNode.removeChild(skill.el);
+                        }
+                        // 如果在 castingMap 里也要删掉
+                        for (const [key, value] of member.castingMap.entries()) {
+                            if (value === skill) {
+                                member.castingMap.delete(key);
+                            }
+                        }
+                        activeSkills.splice(i, 1);  // member 处早已是成员特定的 activeSkills
+                    }
+                }
+            }
+
+            requestAnimationFrame(animationLoop);
+        }
+
+        // 添加错误处理
+        window.addEventListener('error', (event) => {
+            console.error('ActionMon Error:', event.error);
+        });
+
+        // 性能监控（开发环境：本地服务器或本地文件）
+        const isLocalServer = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const isLocalFile = window.location.protocol === 'file:';
+        const hasDevParam = new URLSearchParams(window.location.search).has('dev');
+        
+        if (isLocalServer || isLocalFile || hasDevParam) {
+            let frameCount = 0;
+            let lastTime = performance.now();
+            
+            function monitorPerformance() {
+                frameCount++;
+                const currentTime = performance.now();
+                if (currentTime - lastTime >= 1000) {
+                    console.log(`FPS: ${Math.round((frameCount * 1000) / (currentTime - lastTime))}, Members: ${partyManager.members.size}`);
+                    frameCount = 0;
+                    lastTime = currentTime;
+                }
+                requestAnimationFrame(monitorPerformance);
+            }
+            monitorPerformance();
+        }
+
+        animationLoop();
+        startOverlayEvents();
+    </script>
+</body>
+</html>
