@@ -30,10 +30,48 @@
         const PADDING_RIGHT = 10;
         
         // 从 CSS 变量中获取视口宽度
-        const viewportWidthStr = window.getComputedStyle(document.documentElement).getPropertyValue('--viewport-width').trim();
-        const VIEWPORT_WIDTH = parseInt(viewportWidthStr) || 500; // 默认值 500px
+        // const viewportWidthStr = window.getComputedStyle(document.documentElement).getPropertyValue('--viewport-width').trim();
+        // const VIEWPORT_WIDTH = parseInt(viewportWidthStr) || 500; // 默认值 500px
         // 计算生成点
-        const SPAWN_X = VIEWPORT_WIDTH - CELL_SIZE - PADDING_RIGHT; 
+        // const SPAWN_X = VIEWPORT_WIDTH - CELL_SIZE - PADDING_RIGHT; 
+
+        let currentSpawnX = window.innerWidth - 120 - CELL_SIZE - PADDING_RIGHT; 
+
+        // 添加一个函数来更新生成点
+        function updateSpawnX() {
+            const allViewports = document.querySelectorAll('.cast-viewport');
+            let validWidth = 0;
+    
+            for (const vp of allViewports) {
+                if (vp.clientWidth > 0) {
+                    validWidth = vp.clientWidth;
+                    break; // 找到了一个有效的宽度，停止查找
+                }
+            }
+            
+            // 只有当获取到了有效的宽度时，才更新全局变量
+            if (validWidth > 0) {
+                currentSpawnX = validWidth - CELL_SIZE - PADDING_RIGHT;
+            } else {
+                // 如果完全找不到（比如全都没显示），我们可以尝试用窗口宽度估算一个
+                // 这样保证在数据还没来之前，坐标系也是正常的
+                const estimatedViewportWidth = window.innerWidth - 120; // 120是名字的大概宽度
+                if (estimatedViewportWidth > 0) {
+                    currentSpawnX = estimatedViewportWidth - CELL_SIZE - PADDING_RIGHT;
+                }
+            }
+            
+            // 安全锁：防止算出负数导致图标直接被回收
+            if (currentSpawnX < 100) currentSpawnX = 100;
+        }
+
+        // 3. 监听窗口大小变化
+        window.addEventListener('resize', () => {
+            updateSpawnX();
+        });
+
+        // 初始化一次
+        updateSpawnX();
 
         // --- 多成员支持数据结构 ---
         class PartyMember {
@@ -331,6 +369,12 @@
         addOverlayListener('PartyChanged', (e) => {
             // e.party 是一个数组，包含当前所有小队成员
             if (e.party && e.party.length > 0) {
+                const controlsDiv = document.getElementById('party-controls');
+                const containerDiv = document.getElementById('party-container');
+
+                if (controlsDiv.style.display === 'none') controlsDiv.style.display = '';
+                if (containerDiv.style.display === 'none') containerDiv.style.display = '';
+
                 const partyIds = [];
                 
                 e.party.forEach(member => {
@@ -356,18 +400,27 @@
                 
                 // 更新控制栏
                 partyManager.updatePartyControls();
+                setTimeout(() => {
+                    updateSpawnX();
+                }, 50);
             }
         });
-
-
 
         // 创建技能 DOM 并加入 activeSkills
         function createSkillItem(member, name, iconId, skillType, hasCastBar) {
             const item = document.createElement('div');
             item.className = 'skill-item';
+
+            if (member.ribbon && member.ribbon.parentElement) {
+                const specificWidth = member.ribbon.parentElement.clientWidth;
+                if (specificWidth > 0) {
+                    currentSpawnX = specificWidth - CELL_SIZE - PADDING_RIGHT;
+                }
+            }
+            item.style.left = `${currentSpawnX}px`;
             
             // 初始位置
-            item.style.left = `${SPAWN_X}px`;
+            // item.style.left = `${SPAWN_X}px`;
 
             // 1. 创建图标
             if (skillType === 4) item.classList.add('ogcd');
@@ -423,6 +476,7 @@
 
         function animationLoop() {
             const now = Date.now();
+            if (currentSpawnX < 50) updateSpawnX();
             
             // 遍历所有小队成员
             for (const member of partyManager.members.values()) {
@@ -438,14 +492,16 @@
                     
                     // 1. 更新位置：所有物体向左移动
                     // 图标当前位置
-                    const currentLeft = SPAWN_X - (timeAlive * SCROLL_SPEED);
+                    // const currentLeft = SPAWN_X - (timeAlive * SCROLL_SPEED);
+                    const currentLeft = currentSpawnX - (timeAlive * SCROLL_SPEED);
                     skill.el.style.left = `${currentLeft}px`;
 
                     // 2. 更新咏唱条宽度（如果正在咏唱）
                     // 逻辑：图标在左移，咏唱条从图标左侧开始，向右延伸到生成点(SPAWN_X)
                     if (skill.isCasting && skill.castBar) {
                         // 咏唱条宽度 = 生成点横坐标 - 图标当前左侧位置
-                        let barWidth = SPAWN_X - currentLeft;
+                        // let barWidth = SPAWN_X - currentLeft;
+                        let barWidth = currentSpawnX - currentLeft;
                         if (barWidth < 0) barWidth = 0; // 保护一下
 
                         skill.castBar.style.width = `${barWidth}px`;
@@ -454,7 +510,7 @@
                     // 3. 清理屏幕外的元素
                     // 检查：如果（位置 + 宽度(如果有) + 额外缓冲） < 0 则删除
                     // 简单起见，当位置小于 -200 时删除
-                    if (currentLeft < -200) {
+                    if (currentLeft < -200 && timeAlive > 1.0) {
                         if (skill.el.parentNode) {
                             skill.el.parentNode.removeChild(skill.el);
                         }
@@ -470,6 +526,24 @@
             }
 
             requestAnimationFrame(animationLoop);
+        }
+
+        function initWelcomeMessage() {
+            const controls = document.getElementById('party-controls');
+            
+            // 1. 显示欢迎语
+            controls.innerHTML = '<div class="welcome-message">ActionMon 0.1.0 Ready - 等待数据中...</div>';
+            
+            // 2. 设置定时器：5秒后如果没有数据，就隐藏整个栏
+            // setTimeout(() => {
+            //     // 检查当前是否已经有真实的小队成员数据
+            //     if (partyManager.members.size === 0) {
+            //         // 如果还没人（说明可能是在浏览器打开，或者还没连上游戏）
+            //         controls.innerHTML = ''; 
+            //         controls.style.display = 'none'; // 隐藏控制栏
+            //         document.getElementById('party-container').style.display = 'none'; // 同时也隐藏容器
+            //     }
+            // }, 5000); // 5000毫秒 = 5秒
         }
 
         // 添加错误处理
@@ -501,6 +575,7 @@
 
         animationLoop();
         startOverlayEvents();
+        initWelcomeMessage();
     </script>
 </body>
 </html>
