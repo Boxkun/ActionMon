@@ -28,9 +28,17 @@ html, body {
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
     margin-bottom: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     pointer-events: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%; 
+    box-sizing: border-box;
+}
+
+#party-controls::-webkit-scrollbar {
+    display: none; 
 }
 
 .welcome-message {
@@ -62,6 +70,7 @@ html, body {
     transition: all 0.2s ease;
     white-space: nowrap;
     user-select: none;
+    flex-shrink: 0; 
 }
 
 .member-toggle:hover {
@@ -85,7 +94,7 @@ html, body {
     align-items: center;
     gap: 10px;
     width: 100%;
-    box-sizing: border-box; /* 避免 padding 导致溢出 */
+    box-sizing: border-box;
 }
 
 .player-name-label {
@@ -114,14 +123,12 @@ html, body {
 
 
 
-/* --- 基础技能容器 --- */
-/* 修改重点：高度固定，文字绝对定位，确保垂直居中是以图标为基准 */
 .skill-item {
     position: absolute;
     width: var(--cell-size);
-    height: var(--cell-size); /* 强制高度等于图标高度 */
+    height: var(--cell-size);
     top: 50%;
-    margin-top: calc(var(--cell-size) / -2); /* 替代 translateY(-50%) 以避免文字影响中心点 */
+    margin-top: calc(var(--cell-size) / -2);
     
     display: flex;
     align-items: center;
@@ -129,14 +136,11 @@ html, body {
     box-sizing: border-box;
     will-change: left;
     
-    /* 允许文字溢出容器下方 */
     overflow: visible;
 
-    /* 入场动画：普通技能 */
     animation: popInNormal 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-/* 图标容器 */
 .skill-icon {
     width: var(--cell-size);
     height: var(--cell-size);
@@ -149,14 +153,12 @@ html, body {
     z-index: 5;
 }
 
-/* 技能名称容器 */
-/* 修改重点：绝对定位到下方，不影响父容器高度计算 */
 .skill-name {
     position: absolute;
-    top: 100%; /* 挂在图标正下方 */
+    top: 100%;
     left: 50%;
     transform: translateX(-50%);
-    width: 120%; /* 允许稍微宽一点 */
+    width: 120%;
     
     color: white;
     font-weight: bold;
@@ -170,14 +172,12 @@ html, body {
     z-index: 11;
 }
 
-/* --- 咏唱条样式 --- */
-/* 修改重点：放入 skill-item 内部，位于图标左侧 */
 .cast-bar {
     position: absolute;
-    height: var(--cell-size); /* 与图标等高 */
+    height: var(--cell-size);
     top: 50%;
-    left: 0; /* 从图标左侧开始 */
-    transform: translateY(-50%); /* 自身垂直居中 */
+    left: 0;
+    transform: translateY(-50%);
     
     background: linear-gradient(90deg, rgba(100, 200, 255, 0.6), rgba(100, 150, 255, 0.0));
     border: 1px solid rgba(150, 220, 255, 0.7);
@@ -188,18 +188,15 @@ html, body {
     transform-origin: left center;
 }
 
-/* --- 特殊状态样式 --- */
 .skill-item.ogcd .skill-icon {
     transform: scale(0.75);
     border-color: rgba(255, 200, 100, 0.5);
 }
 
-/* 正在咏唱的图标 */
 .skill-item.casting .skill-icon {
     opacity: 0.6;
 }
 
-/* --- 关键帧动画定义 --- */
 @keyframes popInNormal {
     from { opacity: 0; transform: scale(0.8); }
     to   { opacity: 1; transform: scale(1); }

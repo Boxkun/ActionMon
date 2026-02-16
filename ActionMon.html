@@ -14,22 +14,23 @@
 
     <script>
         // --- 配置区 ---
-        // 根据序号排除技能（使用 action ID）
+        // 根据 action ID 排除技能. 见action_data.js.
         const IGNORE_SKILL_IDS = new Set([
             "4",    // 坐骑
             "7",    // 攻击
         ]);
         
-        // 传送带速度 (像素/秒)
+        // 滚动速度 (像素/秒)
         const SCROLL_SPEED = 75; 
         
         // 技能图标大小 (像素)
         const CELL_SIZE = 50;
         
-        // 留白
+        // 右侧边距
         const PADDING_RIGHT = 10;
-        
-        // 从 CSS 变量中获取视口宽度
+        // --- 配置区 ---
+
+
         // const viewportWidthStr = window.getComputedStyle(document.documentElement).getPropertyValue('--viewport-width').trim();
         // const VIEWPORT_WIDTH = parseInt(viewportWidthStr) || 500; // 默认值 500px
         // 计算生成点
@@ -37,7 +38,6 @@
 
         let currentSpawnX = window.innerWidth - 120 - CELL_SIZE - PADDING_RIGHT; 
 
-        // 添加一个函数来更新生成点
         function updateSpawnX() {
             const allViewports = document.querySelectorAll('.cast-viewport');
             let validWidth = 0;
@@ -45,27 +45,24 @@
             for (const vp of allViewports) {
                 if (vp.clientWidth > 0) {
                     validWidth = vp.clientWidth;
-                    break; // 找到了一个有效的宽度，停止查找
+                    break;
                 }
             }
             
-            // 只有当获取到了有效的宽度时，才更新全局变量
             if (validWidth > 0) {
                 currentSpawnX = validWidth - CELL_SIZE - PADDING_RIGHT;
             } else {
-                // 如果完全找不到（比如全都没显示），我们可以尝试用窗口宽度估算一个
-                // 这样保证在数据还没来之前，坐标系也是正常的
-                const estimatedViewportWidth = window.innerWidth - 120; // 120是名字的大概宽度
+                // 估算
+                const estimatedViewportWidth = window.innerWidth - 120;
                 if (estimatedViewportWidth > 0) {
                     currentSpawnX = estimatedViewportWidth - CELL_SIZE - PADDING_RIGHT;
                 }
             }
             
-            // 安全锁：防止算出负数导致图标直接被回收
+            // 防止算出负数
             if (currentSpawnX < 100) currentSpawnX = 100;
         }
 
-        // 3. 监听窗口大小变化
         window.addEventListener('resize', () => {
             updateSpawnX();
         });
@@ -73,7 +70,7 @@
         // 初始化一次
         updateSpawnX();
 
-        // --- 多成员支持数据结构 ---
+        // --- 多成员数据结构 ---
         class PartyMember {
             constructor(id, name, job = null) {
                 this.id = id;
@@ -87,14 +84,13 @@
                 this.rowElement = null;
                 this.buttonElement = null;
                 
-                // 创建UI元素
                 this.createUI();
             }
             
             createUI() {
                 const container = document.getElementById('party-container');
                 
-                // 创建行
+                // 创建控件行
                 const row = document.createElement('div');
                 row.className = 'party-member-row';
                 row.id = `row-${this.id}`;
@@ -110,7 +106,7 @@
                 viewport.className = 'cast-viewport';
                 viewport.id = `viewport-${this.id}`;
                 
-                // 创建技能带
+                // 创建技能窗
                 const ribbon = document.createElement('div');
                 ribbon.id = `ribbon-${this.id}`;
                 ribbon.style.position = 'absolute';
@@ -185,6 +181,7 @@
             }
         }
 
+        // 小队成员管理
         class PartyManager {
             constructor() {
                 this.members = new Map();
@@ -215,7 +212,6 @@
                 const controlsContainer = document.getElementById('party-controls');
                 controlsContainer.innerHTML = '';
                 
-                // 按照加入顺序添加按钮
                 for (const member of this.members.values()) {
                     const button = member.createControlButton();
                     controlsContainer.appendChild(button);
@@ -238,7 +234,7 @@
 
         const partyManager = new PartyManager();
 
-        // 更新咏唱条样式（问题3优化：统一咏唱条状态管理）
+        // 更新咏唱条样式
         function updateCastBarState(skillObj, state) {
             if (!skillObj || !skillObj.castBar) return;
             
@@ -256,6 +252,7 @@
             }
         }
 
+        // --- 技能事件处理 ---
         class SkillEventHandler {
             constructor() {
                 this.ignoreSkillIds = IGNORE_SKILL_IDS;
@@ -266,14 +263,13 @@
                     partyManager.currentPlayerId = data.line[2]; // 获取当前玩家ID
                 }
 
-                const lineType = data.line[0];
+                const lineType = data.line[0]; // 日志行类型：20（开始），21（完成），22（AOE），23（中断）
                 const sourceId = data.line[2]; // 技能释放者ID
-                const hexId = data.line[4];
-                const actionId = parseInt(hexId, 16).toString();
+                const actionId = parseInt(data.line[4], 16).toString(); //技能ID
                 
-                // 仅获取已存在的成员数据，不创建新卷轴
+                // 获取已存在的成员数据
                 const member = partyManager.getMember(sourceId);
-                if (!member) return; // 如果成员不在小队中，忽略此事件
+                if (!member) return; // 只处理小队成员的事件
                 
                 // 如果actionId变化，清空去重对象并存储新的actionId
                 if (member.aoeDedupeMap.currentActionId !== actionId) {
@@ -306,39 +302,30 @@
             
             handleCastStart(member, actionId, name, iconId, skillType) {
                 const skillObj = createSkillItem(member, name, iconId, skillType, true);
-                
-                // 给图标添加透明度样式
                 skillObj.el.classList.add('casting');
-                
-                // 存入 Map 以便后续更新
                 member.castingMap.set(actionId, skillObj);
             }
             
             handleCastFinish(member, actionId, name, iconId, skillType) {
+                // 处理瞬发与读条
                 if (member.castingMap.has(actionId)) {
-                    // 如果是，标记咏唱结束
                     const skillObj = member.castingMap.get(actionId);
                     skillObj.isCasting = false;
-                    
-                    // 移除透明度样式
                     skillObj.el.classList.remove('casting');
-                    
-                    // 将图标图层置于咏唱条上方
+
                     const iconEl = skillObj.el.querySelector('.skill-icon');
                     if (iconEl) {
                         iconEl.style.zIndex = '15';
                     }
-                    
-                    // 从 Map 中移除，不再增长长度
+
                     member.castingMap.delete(actionId);
                 } else {
-                    // 如果没在 Map 里，说明是瞬发技能或能力技 (OGCD)
-                    // 直接创建一个没有咏唱条的技能
                     createSkillItem(member, name, iconId, skillType, false);
                 }
             }
             
             handleAoeCast(member, actionId, name, iconId, skillType, effectId) {
+                //多目标去重
                 if (!member.aoeDedupeMap[effectId]) {
                     member.aoeDedupeMap[effectId] = true;
                     this.handleCastFinish(member, actionId, name, iconId, skillType);
@@ -348,13 +335,8 @@
             handleCastInterrupt(member, actionId) {
                 if (member.castingMap.has(actionId)) {
                     const skillObj = member.castingMap.get(actionId);
-                    // 停止咏唱条增长
                     skillObj.isCasting = false;
-                    
-                    // 使用统一的咏唱条状态更新函数
                     updateCastBarState(skillObj, 'interrupted');
-                    
-                    // 从 Map 中移除，不再更新此技能
                     member.castingMap.delete(actionId);
                 }
             }
@@ -362,12 +344,12 @@
 
         const skillEventHandler = new SkillEventHandler();
         
+        // 监听日志行事件
         addOverlayListener('LogLine', (data) => {
             skillEventHandler.handleLogLine(data);
         });
 
         addOverlayListener('PartyChanged', (e) => {
-            // e.party 是一个数组，包含当前所有小队成员
             if (e.party && e.party.length > 0) {
                 const controlsDiv = document.getElementById('party-controls');
                 const containerDiv = document.getElementById('party-container');
@@ -394,11 +376,8 @@
                     }
                     console.log(`Party Member: ID=${id}, Name=${name}, Job=${job}`);
                 });
-                
-                // 清理不在小队中的成员
+
                 partyManager.clearNonPartyMembers(partyIds);
-                
-                // 更新控制栏
                 partyManager.updatePartyControls();
                 setTimeout(() => {
                     updateSpawnX();
@@ -422,7 +401,7 @@
             // 初始位置
             // item.style.left = `${SPAWN_X}px`;
 
-            // 1. 创建图标
+            // 创建图标
             if (skillType === 4) item.classList.add('ogcd');
 
             const iconEl = document.createElement('div');
@@ -434,19 +413,19 @@
             }
             item.appendChild(iconEl);
 
-            // 2. 创建名字
+            // 创建技能名
             const nameLabel = document.createElement('div');
             nameLabel.className = 'skill-name';
             nameLabel.innerText = name;
             adjustFontSize(nameLabel, name);
             item.appendChild(nameLabel);
 
-            // 3. (可选) 创建咏唱条
+            // 创建咏唱条
             let castBarEl = null;
             if (hasCastBar) {
                 castBarEl = document.createElement('div');
                 castBarEl.className = 'cast-bar';
-                castBarEl.style.width = '0px'; // 初始宽度为0
+                castBarEl.style.width = '0px';
                 item.appendChild(castBarEl);
             }
 
@@ -456,7 +435,7 @@
                 el: item,
                 castBar: castBarEl,
                 spawnTime: Date.now(),
-                isCasting: hasCastBar, // 标记是否需要更新宽度
+                isCasting: hasCastBar,
                 name: name
             };
 
@@ -478,28 +457,24 @@
             const now = Date.now();
             if (currentSpawnX < 50) updateSpawnX();
             
-            // 遍历所有小队成员
             for (const member of partyManager.members.values()) {
-                // 如果成员不可见，跳过更新以节省性能
+                // 如果成员不可见则不更新
                 if (!member.visible) continue;
                 
                 const activeSkills = member.activeSkills;
                 
-                // 倒序遍历以便安全删除
+                // 倒序遍历
                 for (let i = activeSkills.length - 1; i >= 0; i--) {
                     const skill = activeSkills[i];
                     const timeAlive = (now - skill.spawnTime) / 1000;
                     
-                    // 1. 更新位置：所有物体向左移动
-                    // 图标当前位置
+                    // 更新图标位置
                     // const currentLeft = SPAWN_X - (timeAlive * SCROLL_SPEED);
                     const currentLeft = currentSpawnX - (timeAlive * SCROLL_SPEED);
                     skill.el.style.left = `${currentLeft}px`;
 
-                    // 2. 更新咏唱条宽度（如果正在咏唱）
-                    // 逻辑：图标在左移，咏唱条从图标左侧开始，向右延伸到生成点(SPAWN_X)
+                    // 更新咏唱条宽度
                     if (skill.isCasting && skill.castBar) {
-                        // 咏唱条宽度 = 生成点横坐标 - 图标当前左侧位置
                         // let barWidth = SPAWN_X - currentLeft;
                         let barWidth = currentSpawnX - currentLeft;
                         if (barWidth < 0) barWidth = 0; // 保护一下
@@ -507,20 +482,17 @@
                         skill.castBar.style.width = `${barWidth}px`;
                     }
 
-                    // 3. 清理屏幕外的元素
-                    // 检查：如果（位置 + 宽度(如果有) + 额外缓冲） < 0 则删除
-                    // 简单起见，当位置小于 -200 时删除
+                    // 清理不可见元素
                     if (currentLeft < -200 && timeAlive > 1.0) {
                         if (skill.el.parentNode) {
                             skill.el.parentNode.removeChild(skill.el);
                         }
-                        // 如果在 castingMap 里也要删掉
                         for (const [key, value] of member.castingMap.entries()) {
                             if (value === skill) {
                                 member.castingMap.delete(key);
                             }
                         }
-                        activeSkills.splice(i, 1);  // member 处早已是成员特定的 activeSkills
+                        activeSkills.splice(i, 1);
                     }
                 }
             }
@@ -528,30 +500,38 @@
             requestAnimationFrame(animationLoop);
         }
 
+        // 控件条横向滚动事件处理
+        (function setupHorizontalScroll() {
+            const controls = document.getElementById('party-controls');
+            
+            if (controls) {
+                controls.addEventListener('wheel', (evt) => {
+                    if (controls.scrollWidth > controls.clientWidth) {
+                        evt.preventDefault();
+                        controls.scrollLeft += evt.deltaY;
+                    }
+                });
+            }
+        })();
+
         function initWelcomeMessage() {
             const controls = document.getElementById('party-controls');
             
-            // 1. 显示欢迎语
             controls.innerHTML = '<div class="welcome-message">ActionMon 0.1.0 Ready - 等待数据中...</div>';
-            
-            // 2. 设置定时器：5秒后如果没有数据，就隐藏整个栏
             // setTimeout(() => {
-            //     // 检查当前是否已经有真实的小队成员数据
             //     if (partyManager.members.size === 0) {
-            //         // 如果还没人（说明可能是在浏览器打开，或者还没连上游戏）
             //         controls.innerHTML = ''; 
-            //         controls.style.display = 'none'; // 隐藏控制栏
-            //         document.getElementById('party-container').style.display = 'none'; // 同时也隐藏容器
+            //         controls.style.display = 'none'; 
+            //         document.getElementById('party-container').style.display = 'none';
             //     }
-            // }, 5000); // 5000毫秒 = 5秒
+            // }, 5000);
         }
 
-        // 添加错误处理
         window.addEventListener('error', (event) => {
             console.error('ActionMon Error:', event.error);
         });
 
-        // 性能监控（开发环境：本地服务器或本地文件）
+        // dev
         const isLocalServer = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         const isLocalFile = window.location.protocol === 'file:';
         const hasDevParam = new URLSearchParams(window.location.search).has('dev');
