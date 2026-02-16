@@ -13,6 +13,21 @@
     <div id="party-container"></div>
 
     <script>
+        if (location.href.indexOf('OVERLAY_WS=') === -1 && !window.OverlayPluginApi) {
+            window.__isBrowser = true;
+            const c = document.getElementById('party-controls');
+            if (c) {
+                c.innerHTML = `
+                    <div style="color: #d30000; font-weight: bold; text-align: left; padding: 10px;">
+                        ⚠️ 未检测到 OverayPlugin<br>
+                        <span style="font-size:12px; font-weight:normal; color:#fff">
+                            请在 ACT 中添加此悬浮窗。
+                        </span>
+                    </div>`;
+                c.style.display = 'flex';
+            }
+        }
+
         // --- 配置区 ---
         // 根据 action ID 排除技能. 见action_data.js.
         const IGNORE_SKILL_IDS = new Set([
@@ -519,8 +534,8 @@
         })();
 
         function initWelcomeMessage() {
-            const controls = document.getElementById('party-controls');
-            
+            if (window.__isBrowser) return;
+            const controls = document.getElementById('party-controls');        
             controls.innerHTML = '<div class="welcome-message">ActionMon 0.1.0 Ready - 等待数据中...</div>';
             // setTimeout(() => {
             //     if (partyManager.members.size === 0) {
