@@ -301,6 +301,7 @@
             }
             
             handleCastStart(member, actionId, name, iconId, skillType) {
+                if (!member.visible) return;
                 const skillObj = createSkillItem(member, name, iconId, skillType, true);
                 skillObj.el.classList.add('casting');
                 member.castingMap.set(actionId, skillObj);
@@ -308,6 +309,7 @@
             
             handleCastFinish(member, actionId, name, iconId, skillType) {
                 // 处理瞬发与读条
+                if (!member.visible) return;
                 if (member.castingMap.has(actionId)) {
                     const skillObj = member.castingMap.get(actionId);
                     skillObj.isCasting = false;
@@ -326,6 +328,7 @@
             
             handleAoeCast(member, actionId, name, iconId, skillType, effectId) {
                 //多目标去重
+                if (!member.visible) return;
                 if (!member.aoeDedupeMap[effectId]) {
                     member.aoeDedupeMap[effectId] = true;
                     this.handleCastFinish(member, actionId, name, iconId, skillType);
@@ -333,6 +336,7 @@
             }
             
             handleCastInterrupt(member, actionId) {
+                if (!member.visible) return;
                 if (member.castingMap.has(actionId)) {
                     const skillObj = member.castingMap.get(actionId);
                     skillObj.isCasting = false;
