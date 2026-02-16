@@ -19,7 +19,7 @@
             if (c) {
                 c.innerHTML = `
                     <div style="color: #d30000; font-weight: bold; text-align: left; padding: 10px;">
-                        ⚠️ 未检测到 OverayPlugin<br>
+                        ⚠️ 未检测到 OverlayPlugin<br>
                         <span style="font-size:12px; font-weight:normal; color:#fff">
                             请在 ACT 中添加此悬浮窗。
                         </span>
@@ -536,7 +536,7 @@
         function initWelcomeMessage() {
             if (window.__isBrowser) return;
             const controls = document.getElementById('party-controls');        
-            controls.innerHTML = '<div class="welcome-message">ActionMon 0.1.0 Ready - 等待数据中...</div>';
+            controls.innerHTML = '<div class="welcome-message">ActionMon 0.1.1 Ready - 等待数据中...</div>';
             // setTimeout(() => {
             //     if (partyManager.members.size === 0) {
             //         controls.innerHTML = ''; 
