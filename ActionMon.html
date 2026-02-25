@@ -9,7 +9,12 @@
 </head>
 <body>
 
-    <div id="party-controls"></div>
+    <div id="top-bar">
+        <div id="party-controls"></div>
+        <button id="toggle-bar-btn" title="收起/展开控制条">
+            <img src="icon.png" alt="">
+        </button>
+    </div>
     <div id="party-container"></div>
 
     <script>
@@ -80,6 +85,10 @@
 
         window.addEventListener('resize', () => {
             updateSpawnX();
+            const btn = document.getElementById('toggle-bar-btn');
+            if (btn && btn.style.display !== 'none') {
+                btn.style.width = btn.offsetHeight + 'px';
+            }
         });
 
         // 初始化一次
@@ -249,6 +258,18 @@
 
         const partyManager = new PartyManager();
 
+        // --- 展开/收回按钮逻辑 ---
+        const toggleBarBtn = document.getElementById('toggle-bar-btn');
+        const controlsDiv = document.getElementById('party-controls');
+        
+        toggleBarBtn.addEventListener('click', () => {
+            controlsDiv.classList.toggle('collapsed');
+            toggleBarBtn.classList.toggle('collapsed');
+            
+            // 动画结束后重新计算一下技能出生点
+            setTimeout(updateSpawnX, 400); 
+        });
+
         // 更新咏唱条样式
         function updateCastBarState(skillObj, state) {
             if (!skillObj || !skillObj.castBar) return;
@@ -256,13 +277,17 @@
             switch (state) {
                 case 'casting':
                     // 正在咏唱
-                    skillObj.castBar.style.background = 'linear-gradient(90deg, rgba(100, 200, 255, 0.6), rgba(100, 150, 255, 0.0))';
+                    skillObj.castBar.style.background = 'linear-gradient(90deg, rgba(100, 200, 255, 0.4), rgba(100, 150, 255, 0.0))';
                     skillObj.castBar.style.borderColor = 'rgba(150, 220, 255, 0.7)';
+                    skillObj.castBar.style.zIndex = '10';
+                    skillObj.el.style.zIndex = '20';
                     break;
                 case 'interrupted':
                     // 咏唱中断
-                    skillObj.castBar.style.background = 'linear-gradient(90deg, rgba(255, 100, 100, 0.8), rgba(255, 50, 50, 0.3))';
+                    skillObj.castBar.style.background = 'linear-gradient(90deg, rgba(255, 100, 100, 0.4), rgba(255, 50, 50, 0.0))';
                     skillObj.castBar.style.borderColor = 'rgba(255, 100, 100, 1)';
+                    skillObj.castBar.style.zIndex = '20';
+                    skillObj.el.style.zIndex = '10';
                     break;
             }
         }
@@ -319,6 +344,7 @@
                 if (!member.visible) return;
                 const skillObj = createSkillItem(member, name, iconId, skillType, true);
                 skillObj.el.classList.add('casting');
+                updateCastBarState(skillObj, 'casting'); 
                 member.castingMap.set(actionId, skillObj);
             }
             
@@ -332,7 +358,7 @@
 
                     const iconEl = skillObj.el.querySelector('.skill-icon');
                     if (iconEl) {
-                        iconEl.style.zIndex = '15';
+                        iconEl.style.zIndex = '2';
                     }
 
                     member.castingMap.delete(actionId);
@@ -375,6 +401,11 @@
 
                 if (controlsDiv.style.display === 'none') controlsDiv.style.display = '';
                 if (containerDiv.style.display === 'none') containerDiv.style.display = '';
+                toggleBarBtn.style.display = 'flex';
+
+                requestAnimationFrame(() => {
+                    toggleBarBtn.style.width = toggleBarBtn.offsetHeight + 'px';
+                });
 
                 const partyIds = [];
                 
@@ -404,8 +435,14 @@
             }
         });
 
-        // 创建技能 DOM 并加入 activeSkills
         function createSkillItem(member, name, iconId, skillType, hasCastBar) {
+            const wrapper = document.createElement('div');
+            wrapper.style.position = 'absolute';
+            wrapper.style.left = '0px';
+            wrapper.style.top = '0px';
+            wrapper.style.height = '100%';
+            wrapper.style.width = '0px';
+
             const item = document.createElement('div');
             item.className = 'skill-item';
 
@@ -415,12 +452,7 @@
                     currentSpawnX = specificWidth - CELL_SIZE - PADDING_RIGHT;
                 }
             }
-            item.style.left = `${currentSpawnX}px`;
-            
-            // 初始位置
-            // item.style.left = `${SPAWN_X}px`;
 
-            // 创建图标
             if (skillType === 4) item.classList.add('ogcd');
 
             const iconEl = document.createElement('div');
@@ -432,25 +464,26 @@
             }
             item.appendChild(iconEl);
 
-            // 创建技能名
             const nameLabel = document.createElement('div');
             nameLabel.className = 'skill-name';
             nameLabel.innerText = name;
             adjustFontSize(nameLabel, name);
             item.appendChild(nameLabel);
 
-            // 创建咏唱条
             let castBarEl = null;
             if (hasCastBar) {
                 castBarEl = document.createElement('div');
                 castBarEl.className = 'cast-bar';
-                castBarEl.style.width = '0px';
-                item.appendChild(castBarEl);
+                castBarEl.style.width = '0px'; 
+                wrapper.appendChild(castBarEl); 
             }
 
-            member.ribbon.appendChild(item);
+            // 组装 DOM
+            wrapper.appendChild(item);
+            member.ribbon.appendChild(wrapper);
 
             const skillObj = {
+                wrapper: wrapper,
                 el: item,
                 castBar: castBarEl,
                 spawnTime: Date.now(),
@@ -465,10 +498,14 @@
         function adjustFontSize(nameEl, skillName) {
             let fontSize = 10;
             const nameLength = skillName.length;
-            if (nameLength > 10) fontSize = 6;
-            else if (nameLength > 8) fontSize = 7;
-            else if (nameLength > 6) fontSize = 8;
-            else if (nameLength > 4) fontSize = 9;
+            if (nameLength >= 6) {
+                nameEl.style.transform = `scale(0.75)`; 
+            } else if (nameLength >= 4) {
+                fontSize = 9;
+                nameEl.style.transform = 'scale(1)';
+            } else {
+                nameEl.style.transform = 'scale(1)';
+            }
             nameEl.style.fontSize = `${fontSize}px`;
         }
 
@@ -477,34 +514,29 @@
             if (currentSpawnX < 50) updateSpawnX();
             
             for (const member of partyManager.members.values()) {
-                // 如果成员不可见则不更新
                 if (!member.visible) continue;
                 
                 const activeSkills = member.activeSkills;
                 
-                // 倒序遍历
                 for (let i = activeSkills.length - 1; i >= 0; i--) {
                     const skill = activeSkills[i];
                     const timeAlive = (now - skill.spawnTime) / 1000;
                     
-                    // 更新图标位置
-                    // const currentLeft = SPAWN_X - (timeAlive * SCROLL_SPEED);
                     const currentLeft = currentSpawnX - (timeAlive * SCROLL_SPEED);
-                    skill.el.style.left = `${currentLeft}px`;
+                    
+                    skill.wrapper.style.transform = `translateX(${currentLeft}px)`;
 
                     // 更新咏唱条宽度
                     if (skill.isCasting && skill.castBar) {
-                        // let barWidth = SPAWN_X - currentLeft;
                         let barWidth = currentSpawnX - currentLeft;
-                        if (barWidth < 0) barWidth = 0; // 保护一下
-
+                        if (barWidth < 0) barWidth = 0; 
                         skill.castBar.style.width = `${barWidth}px`;
                     }
 
                     // 清理不可见元素
-                    if (currentLeft < -200 && timeAlive > 1.0) {
-                        if (skill.el.parentNode) {
-                            skill.el.parentNode.removeChild(skill.el);
+                    if (currentLeft < -400 && timeAlive > 2.5) {
+                        if (skill.wrapper.parentNode) {
+                            skill.wrapper.parentNode.removeChild(skill.wrapper);
                         }
                         for (const [key, value] of member.castingMap.entries()) {
                             if (value === skill) {
@@ -515,7 +547,6 @@
                     }
                 }
             }
-
             requestAnimationFrame(animationLoop);
         }
 
@@ -536,7 +567,7 @@
         function initWelcomeMessage() {
             if (window.__isBrowser) return;
             const controls = document.getElementById('party-controls');        
-            controls.innerHTML = '<div class="welcome-message">ActionMon 0.1.1 Ready - 等待数据中...</div>';
+            controls.innerHTML = '<div class="welcome-message">ActionMon 0.2.0 Ready - 等待数据中...</div>';
             // setTimeout(() => {
             //     if (partyManager.members.size === 0) {
             //         controls.innerHTML = ''; 
